@@ -1,0 +1,6 @@
+[package]
+name = "gtp"
+version = "0.1.0"
+authors = ["Bjørn Nordbø <bn@strangedays.no>"]
+
+[dependencies]
