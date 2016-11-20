@@ -36,6 +36,7 @@ pub struct Gtp {
     pub version: Version,
     pub protocol: Protocol,
     pub flags: Flags,
+    pub length: Length,
     pub teid: TunnelEid,
     pub seq_num: Option<SequenceNumber>,
     pub next_ext_type: Option<NextExtHeaderType>,
@@ -48,11 +49,13 @@ impl Gtp {
         let ver   = Version::parse(top)?;
         let proto = Protocol::parse(top)?;
         let flags = Flags::parse(top)?;
+        let len   = Length::parse(p)?;
         let teid  = TunnelEid::parse(p)?;
         Ok(Gtp {
             version: ver,
             protocol: proto,
             flags: flags,
+            length: len,
             teid: teid,
             seq_num: None,
             next_ext_type: None
@@ -120,7 +123,15 @@ impl Flag {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub struct Length(u64);
+pub struct Length(u16);
+
+impl Length {
+    pub fn parse(p: &mut Parser) -> ParseResult<Self> {
+        let o1 = p.parse_u8().map(|o| o as u16 & 0u16)?;
+        let o2 = p.parse_u8()? as u16;
+        Ok(Length(o1 & o2))
+    }
+}
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct TunnelEid([u8; 4]);
@@ -163,11 +174,12 @@ mod tests {
 
     #[test]
     fn parse_header() {
-        let raw = [0b00110000, 1, 0, 0, 0, 0];
+        let raw = [0b00110000, 0, 0, 1, 0, 0, 0, 0];
         let mut p = Parser::new(&raw);
         let parsed = Gtp::parse(&mut p).unwrap();
         assert_eq!(parsed.flags.0.is_empty(), true);
         assert_eq!(parsed.version, Version(1));
+        assert_eq!(parsed.length, Length(0));
         assert_eq!(parsed.teid, TunnelEid([1, 0, 0, 0]));
     }
 }
