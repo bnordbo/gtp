@@ -48,6 +48,7 @@ pub struct Gtp {
     pub length: Length,
     pub teid: TunnelEid,
     pub seq_num: Option<SequenceNumber>,
+    pub npdu_num: Option<NPduNumber>,
     pub next_ext_type: Option<NextExtHeaderType>,
     // TODO: Implement support for extension headers.
 }
@@ -67,6 +68,7 @@ impl Gtp {
             length: len,
             teid: teid,
             seq_num: None,
+            npdu_num: None,
             next_ext_type: None
         })
     }
@@ -149,20 +151,20 @@ impl TunnelEid {
 }
 
 #[derive(Debug)]
-pub struct SequenceNumber(u64);
+pub struct SequenceNumber(u16);
 
 #[derive(Debug)]
-pub struct NPduNumber(u32);
+pub struct NPduNumber(u8);
 
 #[derive(Debug)]
 pub enum NextExtHeaderType {
     EndReached,
-    MbmsSupport,
-    MsInfoChangeReporting,
-    Reserved,
-    PdbpPdu,
-    SuspendRequest,
-    SuspendResponse,
+    MbmsSupport,              // 00000001, Control
+    MsInfoChangeReporting,    // 00000010, Control
+    UdpPort,                  // 01000000, User
+    PdcpPdu,
+    SuspendRequest,           // 11000001, Control
+    SuspendResponse,          // 11000010, Control
 }
 
 #[derive(Debug)]
@@ -178,7 +180,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_header() {
+    fn parse_minimal_header() {
         let raw = [0b00110000, 0, 0, 1, 0, 0, 0, 0];
         let mut p = Parser::new(&raw);
         let parsed = Gtp::parse(&mut p).unwrap();
@@ -186,5 +188,19 @@ mod tests {
         assert_eq!(parsed.version, Version(1));
         assert_eq!(parsed.length, Length(0));
         assert_eq!(parsed.teid, TunnelEid(1));
+    }
+
+    #[ignore]
+    #[test]
+    fn parse_basic_header() {
+        let raw = [0b00110011, 0, 0, 1, 0, 0, 0, 14, 0, 5, 0];
+        let mut p = Parser::new(&raw);
+        let parsed = Gtp::parse(&mut p).unwrap();
+        assert_eq!(parsed.flags.0.is_empty(), true);
+        assert_eq!(parsed.version, Version(1));
+        assert_eq!(parsed.length, Length(0));
+        assert_eq!(parsed.teid, TunnelEid(1));
+        assert_eq!(parsed.seq_num, SequenceNumber(14));
+        assert_eq!(parsed.npdu_num, NPduNumber(5));
     }
 }
