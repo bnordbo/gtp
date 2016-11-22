@@ -1,3 +1,4 @@
+use byteorder::{ByteOrder, LittleEndian};
 use std::collections::hash_set::{HashSet};
 
 pub struct Parser<'a> {
@@ -28,6 +29,14 @@ impl<'a> Parser<'a> {
 
     pub fn parse_u8(&mut self) -> ParseResult<u8> {
         self.parse(1).map(|r| r[0])
+    }
+
+    pub fn parse_u16(&mut self) -> ParseResult<u16> {
+        self.parse(2).map(LittleEndian::read_u16)
+    }
+
+    pub fn parse_u32(&mut self) -> ParseResult<u32> {
+        self.parse(4).map(LittleEndian::read_u32)
     }
 }
 
@@ -81,9 +90,8 @@ pub enum Protocol {
 impl Protocol {
     pub fn parse(b: u8) -> ParseResult<Protocol> {
         match b & 0b00100000 {
-            0b00000000 => Ok(Protocol::GtpPrime),
-            0b00100000 => Ok(Protocol::Gtp),
-            x => panic!("Impossible GTP protocol {}.", x),
+            0 => Ok(Protocol::GtpPrime),
+            _ => Ok(Protocol::Gtp),
         }
     }
 }
@@ -127,19 +135,16 @@ pub struct Length(u16);
 
 impl Length {
     pub fn parse(p: &mut Parser) -> ParseResult<Self> {
-        let o1 = p.parse_u8().map(|o| o as u16 & 0u16)?;
-        let o2 = p.parse_u8()? as u16;
-        Ok(Length(o1 & o2))
+        p.parse_u16().map(Length)
     }
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub struct TunnelEid([u8; 4]);
+pub struct TunnelEid(u32);
 
 impl TunnelEid {
     pub fn parse(p: &mut Parser) -> ParseResult<Self> {
-        // TODO: Maybe replace cumbersomeness with array_ref! from arrayref
-        p.parse(4).map(|bs| TunnelEid([bs[0], bs[1], bs[2], bs[3]]))
+        p.parse_u32().map(TunnelEid)
     }
 }
 
@@ -180,6 +185,6 @@ mod tests {
         assert_eq!(parsed.flags.0.is_empty(), true);
         assert_eq!(parsed.version, Version(1));
         assert_eq!(parsed.length, Length(0));
-        assert_eq!(parsed.teid, TunnelEid([1, 0, 0, 0]));
+        assert_eq!(parsed.teid, TunnelEid(1));
     }
 }
