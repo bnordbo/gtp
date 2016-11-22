@@ -61,14 +61,20 @@ impl Gtp {
         let flags = Flags::parse(top)?;
         let len   = Length::parse(p)?;
         let teid  = TunnelEid::parse(p)?;
+        let seq_num = if flags.contains(&Flag::SequenceNumber) {
+            SequenceNumber::parse(p).map(Some)?
+        } else {
+            None
+        };
+        let npdu_num = flags.parse_npdu(p)?;
         Ok(Gtp {
             version: ver,
             protocol: proto,
             flags: flags,
             length: len,
             teid: teid,
-            seq_num: None,
-            npdu_num: None,
+            seq_num: seq_num,
+            npdu_num: npdu_num,
             next_ext_type: None
         })
     }
@@ -108,6 +114,18 @@ impl Flags {
         if Flag::has_sequence_number(b) { res.insert(Flag::SequenceNumber); }
         if Flag::has_extension_header(b) { res.insert(Flag::ExtensionHeader); }
         Ok(Flags(res))
+    }
+
+    pub fn parse_npdu(&self, p: &mut Parser) -> ParseResult<Option<NPduNumber>> {
+        if self.contains(&Flag::NPduNumber) {
+            NPduNumber::parse(p).map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn contains(&self, flag: &Flag) -> bool {
+        self.0.contains(flag)
     }
 }
 
@@ -150,11 +168,23 @@ impl TunnelEid {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct SequenceNumber(u16);
 
-#[derive(Debug)]
+impl SequenceNumber {
+    pub fn parse(p: &mut Parser) -> ParseResult<Self> {
+        p.parse_u16().map(SequenceNumber)
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
 pub struct NPduNumber(u8);
+
+impl NPduNumber {
+    pub fn parse(p: &mut Parser) -> ParseResult<Self> {
+        p.parse_u8().map(NPduNumber)
+    }
+}
 
 #[derive(Debug)]
 pub enum NextExtHeaderType {
@@ -190,17 +220,16 @@ mod tests {
         assert_eq!(parsed.teid, TunnelEid(1));
     }
 
-    #[ignore]
     #[test]
     fn parse_basic_header() {
         let raw = [0b00110011, 0, 0, 1, 0, 0, 0, 14, 0, 5, 0];
         let mut p = Parser::new(&raw);
         let parsed = Gtp::parse(&mut p).unwrap();
-        assert_eq!(parsed.flags.0.is_empty(), true);
+        assert_eq!(parsed.flags.0.is_empty(), false);
         assert_eq!(parsed.version, Version(1));
         assert_eq!(parsed.length, Length(0));
         assert_eq!(parsed.teid, TunnelEid(1));
-        assert_eq!(parsed.seq_num, SequenceNumber(14));
-        assert_eq!(parsed.npdu_num, NPduNumber(5));
+        assert_eq!(parsed.seq_num, Some(SequenceNumber(14)));
+        assert_eq!(parsed.npdu_num, Some(NPduNumber(5)));
     }
 }
