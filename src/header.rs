@@ -1,45 +1,7 @@
-use byteorder::{ByteOrder, LittleEndian};
+use parser::{Parser, ParseResult};
 use std::collections::hash_set::{HashSet};
 
-pub struct Parser<'a> {
-    bytes: &'a [u8],
-    pos: usize,
-}
-
-#[derive(Debug)]
-pub enum ParseError {
-    PrematureEnd,
-    UnsupportedVersion,
-}
-
-pub type ParseResult<T> = Result<T, ParseError>;
-
-impl<'a> Parser<'a> {
-    pub fn new(bytes: &'a [u8]) -> Parser<'a> {
-        Parser { bytes: bytes, pos: 0 }
-    }
-
-    pub fn parse(&mut self, len: usize) -> ParseResult<&'a [u8]> {
-        if self.pos + len > self.bytes.len() {
-            return Err(ParseError::PrematureEnd);
-        }
-        self.pos = self.pos + len;
-        Ok(&self.bytes[self.pos-len..self.pos])
-    }
-
-    pub fn parse_u8(&mut self) -> ParseResult<u8> {
-        self.parse(1).map(|r| r[0])
-    }
-
-    pub fn parse_u16(&mut self) -> ParseResult<u16> {
-        self.parse(2).map(LittleEndian::read_u16)
-    }
-
-    pub fn parse_u32(&mut self) -> ParseResult<u32> {
-        self.parse(4).map(LittleEndian::read_u32)
-    }
-}
-
+// TODO: Add message type too.
 #[derive(Debug)]
 pub struct Gtp {
     pub version: Version,
@@ -150,6 +112,12 @@ impl Flag {
     }
 }
 
+pub enum MessageType {
+    EchoRequest,   // TS29281, 7.2.1
+    EchoResponse,  // TS29281, 7.2.2
+
+}
+
 #[derive(Debug, Eq, PartialEq)]
 pub struct Length(u16);
 
@@ -188,11 +156,11 @@ impl NPduNumber {
 
 #[derive(Debug)]
 pub enum NextExtHeaderType {
-    EndReached,
+    EndReached,               // 00000000
     MbmsSupport,              // 00000001, Control
     MsInfoChangeReporting,    // 00000010, Control
     UdpPort,                  // 01000000, User
-    PdcpPdu,
+    PdcpPdu,                  // 11000000
     SuspendRequest,           // 11000001, Control
     SuspendResponse,          // 11000010, Control
 }
@@ -207,6 +175,7 @@ pub struct NextExtensionHeader {
 
 #[cfg(test)]
 mod tests {
+    use parser::Parser;
     use super::*;
 
     #[test]
@@ -214,7 +183,7 @@ mod tests {
         let raw = [0b00110000, 0, 0, 1, 0, 0, 0, 0];
         let mut p = Parser::new(&raw);
         let parsed = Gtp::parse(&mut p).unwrap();
-        assert_eq!(parsed.flags.0.is_empty(), true);
+        assert!(parsed.flags.0.is_empty());
         assert_eq!(parsed.version, Version(1));
         assert_eq!(parsed.length, Length(0));
         assert_eq!(parsed.teid, TunnelEid(1));
@@ -225,10 +194,7 @@ mod tests {
         let raw = [0b00110011, 0, 0, 1, 0, 0, 0, 14, 0, 5, 0];
         let mut p = Parser::new(&raw);
         let parsed = Gtp::parse(&mut p).unwrap();
-        assert_eq!(parsed.flags.0.is_empty(), false);
-        assert_eq!(parsed.version, Version(1));
-        assert_eq!(parsed.length, Length(0));
-        assert_eq!(parsed.teid, TunnelEid(1));
+        assert!(!parsed.flags.0.is_empty());
         assert_eq!(parsed.seq_num, Some(SequenceNumber(14)));
         assert_eq!(parsed.npdu_num, Some(NPduNumber(5)));
     }
