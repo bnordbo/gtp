@@ -1,3 +1,4 @@
+use info::InfoElement;
 use parser::{Parser, ParseResult};
 use std::collections::hash_set::{HashSet};
 
