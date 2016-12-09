@@ -11,7 +11,7 @@ pub enum InfoElement<'a> {
     TeiData(TeiData),
 
     // 133, TS29281, 8.4
-    GtpPeerAddr(Length, InetAddr<'a>),
+    GtpPeerAddr(InetAddr<'a>),
 
     // 141, TS29281, 8.5
     ExtHeader(Comprehension, ExtType),
@@ -21,7 +21,7 @@ pub enum InfoElement<'a> {
 }
 
 impl<'a> InfoElement<'a> {
-    pub fn parse(p: &mut Parser) -> ParseResult<Self> {
+    pub fn parse(p: &'a mut Parser) -> ParseResult<Self> {
         let ie_type = p.parse_u8()?;
         if ie_type & 0b1000000 == 0 {
             Self::parse_fixed(ie_type, p)
@@ -33,12 +33,25 @@ impl<'a> InfoElement<'a> {
     fn parse_fixed(ie_type: u8, p: &mut Parser) -> ParseResult<Self> {
         match ie_type {
             14 => RestartCounter::parse(p).map(InfoElement::Recovery),
+            16 => TeiData::parse(p).map(InfoElement::TeiData),
             _  => unimplemented!()
         }
     }
 
-    fn parse_variable(ie_type: u8, p: &mut Parser) -> ParseResult<Self> {
-        unimplemented!()
+    fn parse_variable(ie_type: u8, p: &'a mut Parser) -> ParseResult<Self> {
+        let len = p.parse_u8()?;
+        match ie_type {
+            133 => Self::parse_peer_address(len, p),
+            _   => unimplemented!()
+        }
+    }
+
+    fn parse_peer_address(len: u8, p: &'a mut Parser) -> ParseResult<Self> {
+        match len {
+            4  => InetAddr::parse_v4(p).map(InfoElement::GtpPeerAddr),
+            16 => InetAddr::parse_v6(p).map(InfoElement::GtpPeerAddr),
+            _  => unimplemented!()
+        }
     }
 }
 
