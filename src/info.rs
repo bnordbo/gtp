@@ -1,5 +1,5 @@
 use byteorder::{ByteOrder, LittleEndian};
-use parser::{Parser, ParseResult};
+use parser::{Parser, ParseError, ParseResult};
 
 pub enum InfoElement<'a> {
     //  14, TS29281, 8.2
@@ -34,7 +34,7 @@ impl<'a> InfoElement<'a> {
         match ie_type {
             14 => RestartCounter::parse(p).map(InfoElement::Recovery),
             16 => TeiData::parse(p).map(InfoElement::TeiData),
-            _  => unimplemented!()
+            _  => Err(ParseError::UnsupportedInformationElement(ie_type))
         }
     }
 
@@ -42,7 +42,7 @@ impl<'a> InfoElement<'a> {
         let len = p.parse_u8()?;
         match ie_type {
             133 => Self::parse_peer_address(len, p),
-            _   => unimplemented!()
+            _   => Err(ParseError::UnsupportedInformationElement(ie_type))
         }
     }
 
@@ -50,7 +50,7 @@ impl<'a> InfoElement<'a> {
         match len {
             4  => InetAddr::parse_v4(p).map(InfoElement::GtpPeerAddr),
             16 => InetAddr::parse_v6(p).map(InfoElement::GtpPeerAddr),
-            _  => unimplemented!()
+            _  => Err(ParseError::BadIpAddress)
         }
     }
 }
@@ -80,19 +80,28 @@ impl Length {
     }
 }
 
+// TS29281, 5.2
+pub struct ExtHeader {
+    comprehension: Comprehension,
+    header: ExtType
+}
+
 // TS29281, 5.2.2
 pub enum ExtType {
     UdpPort(u16),
     PdcpPduNumber(u32)
 }
 
-impl ExtType {
+impl ExtHeader {
     pub fn parse(p: &mut Parser) -> ParseResult<Self> {
         let len = p.parse_u8()?;
         let content = p.parse(len as usize * 4)?;
         let etype = p.parse_u8()?;
-        //        Ok(Comprehension::parse(etype), ExtType::UdpPort(1234))
-        unimplemented!()
+        let compr = Comprehension::parse(etype)?;
+        Ok(ExtHeader {
+            comprehension: compr,
+            header: ExtType::UdpPort(1234)
+        })
     }
 }
 

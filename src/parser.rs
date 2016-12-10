@@ -9,6 +9,8 @@ pub struct Parser<'a> {
 pub enum ParseError {
     PrematureEnd,
     UnsupportedVersion,
+    UnsupportedInformationElement(u8),
+    BadIpAddress,
 }
 
 pub type ParseResult<T> = Result<T, ParseError>;
