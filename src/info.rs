@@ -2,7 +2,7 @@ use byteorder::{ByteOrder, LittleEndian};
 use parser::{Parser, ParseError, ParseResult};
 
 pub enum InfoElement<'a> {
-    //  14, TS29281, 8.2
+    // 14, TS29281, 8.2
     // The Restart Counter value is unused and shall be zeroed/ignored.
     Recovery(RestartCounter),
 
@@ -14,14 +14,14 @@ pub enum InfoElement<'a> {
     GtpPeerAddr(InetAddr<'a>),
 
     // 141, TS29281, 8.5
-    ExtHeader(Comprehension, ExtType),
+    ExtHeader(ExtHeader),
 
     // 255, TS29281, 8.6
 //    PrivateExt(Length, ExtId, ExtVal),
 }
 
 impl<'a> InfoElement<'a> {
-    pub fn parse(p: &'a mut Parser) -> ParseResult<Self> {
+    pub fn parse(p: &'a mut Parser<'a>) -> ParseResult<Self> {
         let ie_type = p.parse_u8()?;
         if ie_type & 0b1000000 == 0 {
             Self::parse_fixed(ie_type, p)
@@ -38,19 +38,11 @@ impl<'a> InfoElement<'a> {
         }
     }
 
-    fn parse_variable(ie_type: u8, p: &'a mut Parser) -> ParseResult<Self> {
+    fn parse_variable(ie_type: u8, p: &'a mut Parser<'a>) -> ParseResult<Self> {
         let len = p.parse_u8()?;
         match ie_type {
-            133 => Self::parse_peer_address(len, p),
+            133 => InetAddr::parse(len, p).map(InfoElement::GtpPeerAddr),
             _   => Err(ParseError::UnsupportedInformationElement(ie_type))
-        }
-    }
-
-    fn parse_peer_address(len: u8, p: &'a mut Parser) -> ParseResult<Self> {
-        match len {
-            4  => InetAddr::parse_v4(p).map(InfoElement::GtpPeerAddr),
-            16 => InetAddr::parse_v6(p).map(InfoElement::GtpPeerAddr),
-            _  => Err(ParseError::BadIpAddress)
         }
     }
 }
@@ -82,26 +74,48 @@ impl Length {
 
 // TS29281, 5.2
 pub struct ExtHeader {
-    comprehension: Comprehension,
-    header: ExtType
+    pub comprehension: Comprehension,
+    pub header: ExtType
+}
+
+impl ExtHeader {
+    pub fn parse(t: u8, p: &mut Parser) -> ParseResult<Self> {
+        let compr = Comprehension::parse(t)?;
+        let len = p.parse_u8()?;
+        let etype = ExtType::parse(t, len, p)?;
+        // Is the length even needed? Both extension headers currently defined
+        // has a fixed length of one.
+//        let content = p.parse(len as usize * 4)?;
+        Ok(ExtHeader {
+            comprehension: compr,
+            header: etype,
+        })
+    }
 }
 
 // TS29281, 5.2.2
 pub enum ExtType {
     UdpPort(u16),
-    PdcpPduNumber(u32)
+    PdcpPduNumber(u32),
 }
 
-impl ExtHeader {
-    pub fn parse(p: &mut Parser) -> ParseResult<Self> {
-        let len = p.parse_u8()?;
-        let content = p.parse(len as usize * 4)?;
-        let etype = p.parse_u8()?;
-        let compr = Comprehension::parse(etype)?;
-        Ok(ExtHeader {
-            comprehension: compr,
-            header: ExtType::UdpPort(1234)
-        })
+impl ExtType {
+    pub fn parse(t: u8, len: u8, p: &mut Parser) -> ParseResult<Self> {
+        match t {
+            0b00000000 => unimplemented!(), // Should probably never be reached?
+            0b01000000 => Self::parse_udp_port(len, p),
+            0b11000000 => p.parse_u32().map(ExtType::PdcpPduNumber),
+            _          => Err(ParseError::UnsupportedExtensionHeader(t))
+        }
+    }
+
+    fn parse_udp_port(len: u8, p: &mut Parser) -> ParseResult<Self> {
+        let port = p.parse(len as usize * 4).map(LittleEndian::read_u32)?;
+        if port > 2^16 {
+            Err(ParseError::BadUdpPort(port))
+        } else {
+            Ok(ExtType::UdpPort(port as u16))
+        }
     }
 }
 
@@ -130,11 +144,19 @@ pub enum InetAddr<'a> {
 }
 
 impl<'a> InetAddr<'a> {
-    pub fn parse_v4(p: &mut Parser<'a>) -> ParseResult<Self> {
+    fn parse(len: u8, p: &'a mut Parser<'a>) -> ParseResult<Self> {
+        match len {
+            4  => Self::parse_v4(p),
+            16 => Self::parse_v6(p),
+            _  => Err(ParseError::BadIpAddress)
+        }
+    }
+
+    fn parse_v4(p: &mut Parser<'a>) -> ParseResult<Self> {
         p.parse(4).map(|s| InetAddr::V4(LittleEndian::read_u32(s)))
     }
 
-    pub fn parse_v6(p: &mut Parser<'a>) -> ParseResult<Self> {
+    fn parse_v6(p: &mut Parser<'a>) -> ParseResult<Self> {
         p.parse(16).map(|s| InetAddr::V6(Box::new(s)))
     }
 }

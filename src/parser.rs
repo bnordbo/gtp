@@ -10,7 +10,9 @@ pub enum ParseError {
     PrematureEnd,
     UnsupportedVersion,
     UnsupportedInformationElement(u8),
+    UnsupportedExtensionHeader(u8),
     BadIpAddress,
+    BadUdpPort(u32),
 }
 
 pub type ParseResult<T> = Result<T, ParseError>;
