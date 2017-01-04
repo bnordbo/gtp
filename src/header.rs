@@ -11,6 +11,7 @@ pub struct Gtp<'a> {
     pub version: Version,
     pub protocol: Protocol,
     pub flags: Flags,
+    pub msg_type: MessageType,
     pub length: Length,
     pub teid: TunnelEid,
     pub seq_num: Option<SequenceNumber>,
@@ -20,19 +21,21 @@ pub struct Gtp<'a> {
 
 impl<'a> Gtp<'a> {
     pub fn parse(p: &mut Parser<'a>) -> ParseResult<Gtp<'a>> {
-        let top   = p.parse_u8()?;
-        let ver   = Version::parse(top)?;
-        let proto = Protocol::parse(top)?;
-        let flags = Flags::parse(top)?;
-        let len   = Length::parse(p)?;
-        let teid  = TunnelEid::parse(p)?;
-        let seq_num = flags.parse_seq_num(p)?;
+        let top      = p.parse_u8()?;
+        let ver      = Version::parse(top)?;
+        let proto    = Protocol::parse(top)?;
+        let flags    = Flags::parse(top)?;
+        let msg_type = MessageType::parse(p)?;
+        let len      = Length::parse(p)?;
+        let teid     = TunnelEid::parse(p)?;
+        let seq_num  = flags.parse_seq_num(p)?;
         let npdu_num = flags.parse_npdu(p)?;
         let ext_hdrs = flags.parse_ext_hdrs(p)?;
         Ok(Gtp {
             version: ver,
             protocol: proto,
             flags: flags,
+            msg_type: msg_type,
             length: len,
             teid: teid,
             seq_num: seq_num,
@@ -134,10 +137,29 @@ impl Flag {
     }
 }
 
+#[derive(Debug)]
 pub enum MessageType {
-    EchoRequest,   // TS29281, 7.2.1
-    EchoResponse,  // TS29281, 7.2.2
+    EchoRequest,              // TS29281, 7.2.1
+    EchoResponse,             // TS29281, 7.2.2
+    ErrorIndication,          // TS29281, 7.3.1
+    SupportedExtHeadersNotif, // TS29281, 7,2,3
+    EndMarker,                // TS29281, 7.3.2
+    GPdu                      // TS29281, 7.1
+}
 
+impl MessageType {
+    pub fn parse(p: &mut Parser) -> ParseResult<Self> {
+        let t = p.parse_u8()?;
+        match t {
+            1   => Ok(MessageType::EchoRequest),
+            2   => Ok(MessageType::EchoResponse),
+            26  => Ok(MessageType::ErrorIndication),
+            31  => Ok(MessageType::SupportedExtHeadersNotif),
+            254 => Ok(MessageType::EndMarker),
+            255 => Ok(MessageType::GPdu),
+            _   => Err(ParseError::UnsupportedMessageType(t))
+        }
+    }
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -221,8 +243,10 @@ impl<'a> ExtensionHeader<'a> {
                  kind: ExtHeaderType,
                  res: &mut Vec<ExtensionHeader<'a>>)
                  -> ParseResult<()> {
-        let length = p.parse_u8().map(|l| l * 4)?;
-        let content = p.parse(length as usize)?;
+        let length = p.parse_u8().map(|l| l as usize * 4)?;
+        // If I understand RS29281 5.2.1 correctly, the length covers the
+        // length field, the contents and the next extension header field.
+        let content = p.parse(length as usize - 2)?;
         let next = ExtHeaderType::parse(p)?;
         res.push(ExtensionHeader::new(kind, content));
         if next != ExtHeaderType::EndReached {
@@ -240,7 +264,7 @@ mod tests {
 
     #[test]
     fn parse_minimal_header() {
-        let raw = [0b00110000, 0, 0, 1, 0, 0, 0, 0];
+        let raw = [0b00110000, 254, 0, 0, 1, 0, 0, 0];
         let mut p = Parser::new(&raw);
         let parsed = Gtp::parse(&mut p).unwrap();
         assert!(parsed.flags.0.is_empty());
@@ -251,11 +275,24 @@ mod tests {
 
     #[test]
     fn parse_basic_header() {
-        let raw = [0b00110011, 0, 0, 1, 0, 0, 0, 14, 0, 5, 0];
+        let raw = [0b00110011, 254, 0, 0, 1, 0, 0, 0, 14, 0, 5];
         let mut p = Parser::new(&raw);
         let parsed = Gtp::parse(&mut p).unwrap();
         assert!(!parsed.flags.0.is_empty());
         assert_eq!(parsed.seq_num, Some(SequenceNumber(14)));
         assert_eq!(parsed.npdu_num, Some(NPduNumber(5)));
+    }
+
+
+    #[test]
+    fn parse_extended_header() {
+        let raw = [0b00110100, 254, 0, 0, 1, 0, 0, 0,
+                   0b01000000, 1, 15, 15,
+                   0b00000000];
+        let mut p = Parser::new(&raw);
+        let parsed = Gtp::parse(&mut p);
+        let parsed = parsed.unwrap();
+        assert!(!parsed.flags.0.is_empty());
+        assert_eq!(parsed.ext_hdrs.len(), 1);
     }
 }

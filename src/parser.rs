@@ -9,6 +9,7 @@ pub struct Parser<'a> {
 pub enum ParseError {
     PrematureEnd,
     UnsupportedVersion,
+    UnsupportedMessageType(u8),
     UnsupportedInformationElement(u8),
     UnsupportedExtensionHeader(u8),
     BadIpAddress,
